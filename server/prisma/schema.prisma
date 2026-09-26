@@ -1,0 +1,156 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Provider {
+  spotify
+  apple_music
+  amazon_music
+  youtube_music
+}
+
+enum ConnectionStatus {
+  active
+  needs_reauth
+  revoked
+  unsupported
+}
+
+enum SubjectType {
+  track
+  album
+  artist
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String
+  displayName  String
+  avatarUrl    String?
+  bio          String?
+  createdAt    DateTime @default(now())
+
+  connections  ConnectedAccount[]
+  ratings      Rating[]
+  diaryEntries DiaryEntry[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+
+  @@map("refresh_tokens")
+}
+
+model ConnectedAccount {
+  id             String            @id @default(uuid())
+  userId         String
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider       Provider
+  status         ConnectionStatus  @default(active)
+  providerUserId String?
+  accessToken    String?
+  accessTokenExpiresAt DateTime?
+  refreshToken   String?
+  scopes         String[]
+  connectedAt    DateTime          @default(now())
+  lastSyncedAt   DateTime?
+  syncSince      DateTime?
+
+  @@unique([userId, provider])
+  @@map("connected_accounts")
+}
+
+model Artist {
+  id          String   @id @default(uuid())
+  name        String
+  imageUrl    String?
+  genres      String[]
+  externalIds Json     @default("{}")
+  createdAt   DateTime @default(now())
+
+  albums Album[]
+  tracks Track[]
+
+  @@map("artists")
+}
+
+model Album {
+  id          String    @id @default(uuid())
+  title       String
+  artistId    String
+  artist      Artist    @relation(fields: [artistId], references: [id])
+  releaseDate DateTime?
+  coverUrl    String?
+  externalIds Json      @default("{}")
+  createdAt   DateTime  @default(now())
+
+  tracks Track[]
+
+  @@map("albums")
+}
+
+model Track {
+  id          String   @id @default(uuid())
+  title       String
+  albumId     String?
+  album       Album?   @relation(fields: [albumId], references: [id])
+  artistId    String
+  artist      Artist   @relation(fields: [artistId], references: [id])
+  durationMs  Int
+  trackNumber Int?
+  externalIds Json     @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@map("tracks")
+}
+
+model Rating {
+  id          String      @id @default(uuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subjectType SubjectType
+  // Polymorphic reference to Artist/Album/Track.id depending on subjectType.
+  // Not a Prisma relation (can't FK to three tables at once); existence is
+  // enforced in application code via assertSubjectExists before writes.
+  subjectId   String
+  score       Float
+  review      String?
+  isRelisten  Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  diaryEntries DiaryEntry[]
+
+  @@unique([userId, subjectType, subjectId])
+  @@map("ratings")
+}
+
+model DiaryEntry {
+  id          String      @id @default(uuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subjectType SubjectType
+  subjectId   String
+  ratingId    String?
+  rating      Rating?     @relation(fields: [ratingId], references: [id])
+  listenedOn  DateTime
+  createdAt   DateTime    @default(now())
+
+  @@map("diary_entries")
+}
