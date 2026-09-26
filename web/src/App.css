@@ -34,10 +34,10 @@
   align-items: center;
   gap: 10px;
   font-family: var(--display);
-  font-weight: 800;
-  font-size: 1.3rem;
+  font-weight: 700;
+  font-size: 1.4rem;
   color: var(--text-h);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.005em;
 }
 .nav .brand:hover {
   color: var(--text-h);
