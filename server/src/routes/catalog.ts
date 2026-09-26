@@ -12,7 +12,11 @@ export const catalogRouter = Router();
 const searchQuerySchema = z.object({
   q: z.string().min(1),
   type: z.enum(['artist', 'album', 'track']).optional(),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
+  // Spotify apps in Development mode get a lower effective cap (10) than
+  // the documented max (50) specifically when querying multiple types in
+  // one request, and reject anything above it with a misleading "Invalid
+  // limit" error rather than naming the real constraint.
+  limit: z.coerce.number().int().min(1).max(50).default(10),
 });
 
 catalogRouter.get(
