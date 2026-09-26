@@ -1,0 +1,886 @@
+openapi: 3.0.3
+info:
+  title: Rated — Music Rating & Listening Stats API
+  version: 0.1.0
+  description: |
+    API for a Letterboxd-style app for music: users rate/log/review tracks,
+    albums and artists, and link streaming accounts (Spotify, Apple Music,
+    Amazon Music, YouTube Music) to pull personal listening stats (top
+    artists/tracks over time, estimated listening time) into their profile.
+
+    ## Design principles
+
+    1. **Ratings are platform-agnostic.** A rating is attached to a canonical
+       `Artist` / `Album` / `Track` entity owned by this app, never directly to
+       a Spotify/Apple/Amazon/YouTube ID. This is required because the same
+       user may rate an album they streamed on Spotify while a friend rates
+       the same album via Apple Music — they must resolve to the same row.
+       Canonical entities are seeded/matched via ISRC/UPC and a metadata
+       source such as MusicBrainz, then enriched with `external_ids` per
+       provider (`{ "spotify": "...", "apple_music": "..." }`) so the client
+       can deep-link "open in Spotify" / "open in Apple Music" buttons.
+
+    2. **Streaming accounts are OAuth connections, not logins.** A user signs
+       up with the app directly (email/password or its own OAuth), then
+       *optionally* links one or more streaming accounts under `/connections`
+       purely to import listening data. Losing a streaming connection must
+       never lose ratings or reviews.
+
+    3. **Provider capabilities are not equivalent — this spec is honest about
+       that** rather than pretending a uniform integration exists:
+
+       | Provider       | Top artists/tracks | Time-range buckets | Recently played | True historical listening-time | Public dev access |
+       |----------------|--------------------|--------------------|------------------|----------------------------------|--------------------|
+       | Spotify        | Yes (`/me/top/*`)  | short/medium/long term | Yes, last 50 only | **No** — not exposed by any endpoint | Yes, self-serve |
+       | Apple Music    | Partial ("heavy rotation") | No true ranges, "recent" only | Yes | No | Yes, but requires paid Apple Developer Program + MusicKit signing |
+       | Amazon Music   | Unknown/limited | N/A | N/A | N/A | **No** — developer API is closed-beta, requires a business relationship with Amazon; not available to indie/hobby apps today |
+       | YouTube Music  | N/A | N/A | N/A | N/A | **No official API exists.** Only unofficial, reverse-engineered clients (ToS risk); not recommended for a shipped product |
+
+       Consequences baked into this spec:
+       - `provider` is an open enum so Amazon Music / YouTube Music can be
+         added later, but their stats endpoints currently return `501` with
+         an explanatory error rather than fabricated data.
+       - There is no "listening time" field sourced directly from a
+         provider. `GET /users/me/stats/listening-time` returns an
+         **estimate** built by this app polling `recently-played` since the
+         moment the account was connected, and says so explicitly in the
+         response (`note` field) — it can never reconstruct history from
+         before the user connected their account.
+       - "Top genres" on a profile are derived from the `genres` field on
+         rated *artists* (basic catalog metadata), not from Spotify's
+         audio-features endpoint, which Spotify deprecated for all apps
+         created after 2024-11-27.
+
+    4. **Recommended build order:** ship ratings/diary/profile against
+       Spotify only first (it's the only provider with frictionless,
+       self-serve OAuth and a real top-items API). Add Apple Music once
+       the core product works. Treat Amazon Music and YouTube Music as
+       "connect account for display only, no data pull" until/unless
+       their access situation changes.
+
+servers:
+  - url: https://api.example.com/v1
+
+tags:
+  - name: Auth
+  - name: Connections
+  - name: Users
+  - name: Catalog
+  - name: Ratings
+  - name: Diary
+  - name: Stats
+
+paths:
+  # ---------------------------------------------------------------- Auth
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Create an account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, username, password]
+              properties:
+                email: { type: string, format: email }
+                username: { type: string, minLength: 3, maxLength: 30, pattern: '^[a-zA-Z0-9_]+$' }
+                password: { type: string, minLength: 8 }
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+                  tokens: { $ref: '#/components/schemas/TokenPair' }
+        '409':
+          description: Email or username already taken
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in with email/username + password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, password]
+              properties:
+                identifier: { type: string, description: "email or username" }
+                password: { type: string }
+      responses:
+        '200':
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+                  tokens: { $ref: '#/components/schemas/TokenPair' }
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Exchange a refresh token for a new access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '200':
+          description: New token pair
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke the current refresh token
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Logged out }
+
+  # --------------------------------------------------------- Connections
+  /connections:
+    get:
+      tags: [Connections]
+      summary: List the current user's linked streaming accounts
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ConnectedAccount' }
+
+  /connections/{provider}/authorize:
+    get:
+      tags: [Connections]
+      summary: Get the URL to start the provider's OAuth flow
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ProviderPath'
+      responses:
+        '200':
+          description: Redirect the user's browser to `authorization_url`
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authorization_url: { type: string, format: uri }
+                  state: { type: string, description: "CSRF-protection value; verify on callback" }
+        '424':
+          description: Provider not yet integrated (e.g. amazon_music, youtube_music)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /connections/{provider}/callback:
+    get:
+      tags: [Connections]
+      summary: OAuth redirect target; provider calls this directly, not the client app
+      parameters:
+        - $ref: '#/components/parameters/ProviderPath'
+        - name: code
+          in: query
+          required: true
+          schema: { type: string }
+        - name: state
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '302':
+          description: Tokens exchanged and stored; redirects back into the app
+        '400':
+          description: State mismatch or provider denied the request
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /connections/{provider}:
+    delete:
+      tags: [Connections]
+      summary: Disconnect a streaming account and delete its stored tokens
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ProviderPath'
+      responses:
+        '204': { description: Disconnected }
+
+  # -------------------------------------------------------------- Users
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get the current user
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+    patch:
+      tags: [Users]
+      summary: Update profile fields
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name: { type: string }
+                bio: { type: string, maxLength: 280 }
+                avatar_url: { type: string, format: uri }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+
+  /users/{username}:
+    get:
+      tags: [Users]
+      summary: Get a public profile
+      parameters:
+        - $ref: '#/components/parameters/UsernamePath'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicUser' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /users/{username}/stats:
+    get:
+      tags: [Users]
+      summary: The profile "specs" — rating-derived stats shown on a user's profile
+      description: |
+        Everything here is derived from the user's own ratings/diary, not
+        from a streaming provider — it works even for users who have never
+        connected a streaming account.
+      parameters:
+        - $ref: '#/components/parameters/UsernamePath'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProfileStats' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ------------------------------------------------------------ Catalog
+  /search:
+    get:
+      tags: [Catalog]
+      summary: Search the canonical catalog
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [artist, album, track]
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 50 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  artists: { type: array, items: { $ref: '#/components/schemas/Artist' } }
+                  albums: { type: array, items: { $ref: '#/components/schemas/Album' } }
+                  tracks: { type: array, items: { $ref: '#/components/schemas/Track' } }
+
+  /artists/{id}:
+    get:
+      tags: [Catalog]
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Artist' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /albums/{id}:
+    get:
+      tags: [Catalog]
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AlbumWithTracks' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tracks/{id}:
+    get:
+      tags: [Catalog]
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Track' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ------------------------------------------------------------ Ratings
+  /ratings:
+    post:
+      tags: [Ratings]
+      summary: Rate a track, album, or artist
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RatingCreateRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Rating' }
+
+  /ratings/{id}:
+    get:
+      tags: [Ratings]
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Rating' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Ratings]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                score: { $ref: '#/components/schemas/Score' }
+                review: { type: string, maxLength: 5000, nullable: true }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Rating' }
+    delete:
+      tags: [Ratings]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '204': { description: Deleted }
+
+  /users/{username}/ratings:
+    get:
+      tags: [Ratings]
+      parameters:
+        - $ref: '#/components/parameters/UsernamePath'
+        - name: subject_type
+          in: query
+          schema: { $ref: '#/components/schemas/SubjectType' }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [recent, highest, lowest] }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedRatings' }
+
+  # -------------------------------------------------------------- Diary
+  /diary:
+    post:
+      tags: [Diary]
+      summary: Log a listen (optionally with a rating), Letterboxd-diary style
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DiaryEntryCreateRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiaryEntry' }
+
+  /users/{username}/diary:
+    get:
+      tags: [Diary]
+      parameters:
+        - $ref: '#/components/parameters/UsernamePath'
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/DiaryEntry' } }
+                  page: { type: integer }
+                  page_size: { type: integer }
+                  total: { type: integer }
+
+  /diary/{id}:
+    delete:
+      tags: [Diary]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdPath' }]
+      responses:
+        '204': { description: Deleted }
+
+  # -------------------------------------------------------------- Stats
+  /users/me/stats/top-artists:
+    get:
+      tags: [Stats]
+      summary: Top artists pulled from a connected streaming account
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ProviderQuery'
+        - $ref: '#/components/parameters/RangeQuery'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TopItemsResponse' }
+        '424':
+          description: Requested provider is not connected, or not yet integrated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /users/me/stats/top-tracks:
+    get:
+      tags: [Stats]
+      summary: Top tracks pulled from a connected streaming account
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ProviderQuery'
+        - $ref: '#/components/parameters/RangeQuery'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TopItemsResponse' }
+        '424':
+          description: Requested provider is not connected, or not yet integrated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /users/me/stats/listening-time:
+    get:
+      tags: [Stats]
+      summary: Estimated listening time since the account was connected
+      description: |
+        This is **not** a figure the provider hands over directly — no
+        provider exposes historical total listening time via API. The value
+        is accumulated by this app periodically polling the provider's
+        recently-played endpoint and summing track durations, starting from
+        the moment the connection was created. See the response's `note`
+        field, which must always be surfaced in the UI so users don't
+        mistake this for their full Spotify-Wrapped-style lifetime total.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ProviderQuery'
+        - $ref: '#/components/parameters/RangeQuery'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListeningTimeEstimate' }
+        '424':
+          description: Requested provider is not connected, or not yet integrated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    UsernamePath:
+      name: username
+      in: path
+      required: true
+      schema: { type: string }
+    ProviderPath:
+      name: provider
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Provider' }
+    ProviderQuery:
+      name: provider
+      in: query
+      required: true
+      schema: { $ref: '#/components/schemas/Provider' }
+    RangeQuery:
+      name: range
+      in: query
+      schema:
+        type: string
+        enum: [short_term, medium_term, long_term]
+        default: medium_term
+      description: |
+        Maps directly to Spotify's `time_range` (short_term ≈ 4 weeks,
+        medium_term ≈ 6 months, long_term ≈ years). For Apple Music, which
+        has no equivalent bucketing, every value currently returns the same
+        "heavy rotation / recently played" data — this is documented, not
+        silently faked.
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, default: 1, minimum: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, default: 20, maximum: 100 }
+
+  responses:
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
+        details: { type: object, nullable: true }
+
+    TokenPair:
+      type: object
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        expires_in: { type: integer, description: seconds }
+
+    Provider:
+      type: string
+      enum: [spotify, apple_music, amazon_music, youtube_music]
+      description: |
+        Open enum so new providers can be added without a breaking change.
+        `amazon_music` and `youtube_music` are accepted values today but
+        every endpoint that would need their data returns 424/501 — see
+        the feasibility table in this document's top-level description.
+
+    ConnectedAccount:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        provider: { $ref: '#/components/schemas/Provider' }
+        status:
+          type: string
+          enum: [active, needs_reauth, revoked, unsupported]
+        scopes: { type: array, items: { type: string } }
+        connected_at: { type: string, format: date-time }
+        last_synced_at: { type: string, format: date-time, nullable: true }
+
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        username: { type: string }
+        display_name: { type: string }
+        avatar_url: { type: string, format: uri, nullable: true }
+        bio: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    PublicUser:
+      type: object
+      properties:
+        username: { type: string }
+        display_name: { type: string }
+        avatar_url: { type: string, format: uri, nullable: true }
+        bio: { type: string, nullable: true }
+
+    ExternalIds:
+      type: object
+      description: Provider-specific catalog IDs for deep links, keyed by Provider value
+      additionalProperties: { type: string }
+
+    Artist:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        image_url: { type: string, format: uri, nullable: true }
+        genres:
+          type: array
+          items: { type: string }
+          nullable: true
+          description: Basic catalog genre tags, when the source provider exposes them
+        external_ids: { $ref: '#/components/schemas/ExternalIds' }
+
+    AlbumSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        cover_url: { type: string, format: uri, nullable: true }
+
+    ArtistSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+
+    Album:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        artist: { $ref: '#/components/schemas/ArtistSummary' }
+        release_date: { type: string, format: date, nullable: true }
+        cover_url: { type: string, format: uri, nullable: true }
+        track_count: { type: integer }
+        external_ids: { $ref: '#/components/schemas/ExternalIds' }
+
+    AlbumWithTracks:
+      allOf:
+        - $ref: '#/components/schemas/Album'
+        - type: object
+          properties:
+            tracks: { type: array, items: { $ref: '#/components/schemas/Track' } }
+
+    Track:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        album: { $ref: '#/components/schemas/AlbumSummary' }
+        artist: { $ref: '#/components/schemas/ArtistSummary' }
+        duration_ms: { type: integer }
+        track_number: { type: integer, nullable: true }
+        external_ids: { $ref: '#/components/schemas/ExternalIds' }
+
+    SubjectType:
+      type: string
+      enum: [track, album, artist]
+
+    Score:
+      type: number
+      minimum: 0.5
+      maximum: 5
+      multipleOf: 0.5
+      description: Half-star scale, 0.5–5.0 (Letterboxd-style)
+
+    RatingCreateRequest:
+      type: object
+      required: [subject_type, subject_id, score]
+      properties:
+        subject_type: { $ref: '#/components/schemas/SubjectType' }
+        subject_id: { type: string, format: uuid }
+        score: { $ref: '#/components/schemas/Score' }
+        review: { type: string, maxLength: 5000, nullable: true }
+        is_relisten: { type: boolean, default: false }
+
+    Rating:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        user: { $ref: '#/components/schemas/PublicUser' }
+        subject_type: { $ref: '#/components/schemas/SubjectType' }
+        subject:
+          description: Polymorphic summary of the rated artist/album/track
+          oneOf:
+            - $ref: '#/components/schemas/ArtistSummary'
+            - $ref: '#/components/schemas/AlbumSummary'
+        score: { $ref: '#/components/schemas/Score' }
+        review: { type: string, nullable: true }
+        is_relisten: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    PaginatedRatings:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Rating' } }
+        page: { type: integer }
+        page_size: { type: integer }
+        total: { type: integer }
+
+    DiaryEntryCreateRequest:
+      type: object
+      required: [subject_type, subject_id, listened_on]
+      properties:
+        subject_type: { $ref: '#/components/schemas/SubjectType' }
+        subject_id: { type: string, format: uuid }
+        listened_on: { type: string, format: date }
+        score: { $ref: '#/components/schemas/Score' }
+        review: { type: string, maxLength: 5000, nullable: true }
+
+    DiaryEntry:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        subject_type: { $ref: '#/components/schemas/SubjectType' }
+        subject:
+          oneOf:
+            - $ref: '#/components/schemas/ArtistSummary'
+            - $ref: '#/components/schemas/AlbumSummary'
+        rating: { $ref: '#/components/schemas/Rating', nullable: true }
+        listened_on: { type: string, format: date }
+        created_at: { type: string, format: date-time }
+
+    RatingsHistogram:
+      type: object
+      description: Bucket key is the score as a string ("0.5".."5.0"), value is count
+      additionalProperties: { type: integer }
+
+    ProfileStats:
+      type: object
+      properties:
+        user: { $ref: '#/components/schemas/PublicUser' }
+        total_ratings: { type: integer }
+        total_diary_entries: { type: integer }
+        average_score: { type: number, nullable: true }
+        ratings_distribution: { $ref: '#/components/schemas/RatingsHistogram' }
+        top_rated_albums:
+          type: array
+          items:
+            type: object
+            properties:
+              album: { $ref: '#/components/schemas/AlbumSummary' }
+              score: { $ref: '#/components/schemas/Score' }
+        top_rated_tracks:
+          type: array
+          items:
+            type: object
+            properties:
+              track: { type: object, properties: { id: { type: string }, title: { type: string } } }
+              score: { $ref: '#/components/schemas/Score' }
+        top_rated_artists:
+          type: array
+          items:
+            type: object
+            properties:
+              artist: { $ref: '#/components/schemas/ArtistSummary' }
+              score: { $ref: '#/components/schemas/Score' }
+        favorite_genres:
+          type: array
+          nullable: true
+          description: Null when no rated artist has genre metadata available
+          items:
+            type: object
+            properties:
+              genre: { type: string }
+              count: { type: integer }
+        most_active_month:
+          type: string
+          nullable: true
+          description: "YYYY-MM with the most diary entries"
+
+    TopItemsResponse:
+      type: object
+      properties:
+        provider: { $ref: '#/components/schemas/Provider' }
+        range: { type: string }
+        generated_at: { type: string, format: date-time }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              rank: { type: integer }
+              artist: { $ref: '#/components/schemas/ArtistSummary', nullable: true }
+              track:
+                type: object
+                nullable: true
+                properties:
+                  id: { type: string, format: uuid }
+                  title: { type: string }
+                  artist: { $ref: '#/components/schemas/ArtistSummary' }
+
+    ListeningTimeEstimate:
+      type: object
+      properties:
+        provider: { $ref: '#/components/schemas/Provider' }
+        range: { type: string }
+        estimated_ms: { type: integer }
+        coverage_start:
+          type: string
+          format: date-time
+          description: When this app started polling this connection — never earlier
+        coverage_end: { type: string, format: date-time }
+        note:
+          type: string
+          default: >-
+            Estimated from polled listening activity since you connected this
+            account. Streaming providers do not expose historical total
+            listening time via API, so this is not a lifetime total.
