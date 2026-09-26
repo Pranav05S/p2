@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { apiFetch, setTokens } from './api';
+import { apiFetch, setSessionExpiredHandler, setTokens } from './api';
 import type { User } from './types';
 
 interface AuthContextValue {
@@ -15,6 +15,11 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setSessionExpiredHandler(() => setUser(null));
+    return () => setSessionExpiredHandler(null);
+  }, []);
 
   useEffect(() => {
     const hasTokens = localStorage.getItem('rated.tokens');

@@ -22,7 +22,29 @@ export function setTokens(tokens: { access_token: string; refresh_token: string 
   else localStorage.removeItem('rated.tokens');
 }
 
-async function refreshTokens(): Promise<boolean> {
+let sessionExpiredHandler: (() => void) | null = null;
+
+export function setSessionExpiredHandler(handler: (() => void) | null) {
+  sessionExpiredHandler = handler;
+}
+
+// Concurrent requests can all hit a 401 at once when the access token
+// expires (e.g. Profile's several parallel fetches). Without sharing one
+// in-flight refresh, a second caller reusing the now-stale refresh token
+// would fail after a first caller already rotated it, and wipe out the
+// tokens the first call just saved.
+let refreshPromise: Promise<boolean> | null = null;
+
+function refreshTokens(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = doRefresh().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+async function doRefresh(): Promise<boolean> {
   const tokens = getTokens();
   if (!tokens) return false;
   const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
@@ -32,6 +54,7 @@ async function refreshTokens(): Promise<boolean> {
   });
   if (!res.ok) {
     setTokens(null);
+    sessionExpiredHandler?.();
     return false;
   }
   const data = await res.json();
