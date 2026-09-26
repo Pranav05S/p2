@@ -16,13 +16,27 @@ export function AlbumDetail() {
 
   return (
     <div className="detail-page">
-      {album.cover_url && <img src={album.cover_url} alt={album.title} className="cover" />}
-      <h1>{album.title}</h1>
-      <p>
-        by <Link to={`/artists/${album.artist.id}`}>{album.artist.name}</Link>
-        {album.release_date && ` · ${album.release_date.slice(0, 4)}`}
-      </p>
-      <RateWidget subjectType="album" subjectId={album.id} />
+      <div className="detail-hero">
+        {album.cover_url && (
+          <div className="detail-hero-backdrop" style={{ backgroundImage: `url(${album.cover_url})` }} />
+        )}
+        {album.cover_url ? (
+          <img src={album.cover_url} alt={album.title} className="cover" />
+        ) : (
+          <div className="cover-placeholder" style={{ background: 'var(--accent-gradient)' }}>
+            {album.title[0]}
+          </div>
+        )}
+        <div className="detail-hero-info">
+          <h1>{album.title}</h1>
+          <p className="muted">
+            by <Link to={`/artists/${album.artist.id}`}>{album.artist.name}</Link>
+            {album.release_date && ` · ${album.release_date.slice(0, 4)}`}
+          </p>
+          <RateWidget subjectType="album" subjectId={album.id} />
+        </div>
+      </div>
+
       <h2>Tracks</h2>
       <ol className="track-list">
         {album.tracks.map((track) => (

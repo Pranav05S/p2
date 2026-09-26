@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { apiFetch, ApiError } from '../lib/api';
 import type { SearchResults } from '../lib/types';
 import { RateWidget } from '../components/RateWidget';
+import { MediaCard } from '../components/MediaCard';
 
 export function Search() {
   const [q, setQ] = useState('');
@@ -31,7 +31,7 @@ export function Search() {
 
   return (
     <div className="search-page">
-      <h1>Search</h1>
+      <h1>Find something to rate</h1>
       <form onSubmit={handleSubmit} className="search-form">
         <input
           value={q}
@@ -49,44 +49,55 @@ export function Search() {
           {results.artists.length > 0 && (
             <section>
               <h2>Artists</h2>
-              <ul className="result-list">
+              <div className="card-grid">
                 {results.artists.map((artist) => (
-                  <li key={artist.id}>
-                    <Link to={`/artists/${artist.id}`}>{artist.name}</Link>
+                  <MediaCard
+                    key={artist.id}
+                    to={`/artists/${artist.id}`}
+                    image={artist.image_url}
+                    title={artist.name}
+                    subtitle={artist.genres?.[0]}
+                  >
                     <RateWidget subjectType="artist" subjectId={artist.id} />
-                  </li>
+                  </MediaCard>
                 ))}
-              </ul>
+              </div>
             </section>
           )}
           {results.albums.length > 0 && (
             <section>
               <h2>Albums</h2>
-              <ul className="result-list">
+              <div className="card-grid">
                 {results.albums.map((album) => (
-                  <li key={album.id}>
-                    <Link to={`/albums/${album.id}`}>
-                      {album.title} — <span className="muted">{album.artist.name}</span>
-                    </Link>
+                  <MediaCard
+                    key={album.id}
+                    to={`/albums/${album.id}`}
+                    image={album.cover_url}
+                    title={album.title}
+                    subtitle={album.artist.name}
+                  >
                     <RateWidget subjectType="album" subjectId={album.id} />
-                  </li>
+                  </MediaCard>
                 ))}
-              </ul>
+              </div>
             </section>
           )}
           {results.tracks.length > 0 && (
             <section>
               <h2>Tracks</h2>
-              <ul className="result-list">
+              <div className="card-grid">
                 {results.tracks.map((track) => (
-                  <li key={track.id}>
-                    <Link to={`/tracks/${track.id}`}>
-                      {track.title} — <span className="muted">{track.artist.name}</span>
-                    </Link>
+                  <MediaCard
+                    key={track.id}
+                    to={`/tracks/${track.id}`}
+                    image={track.album?.cover_url}
+                    title={track.title}
+                    subtitle={track.artist.name}
+                  >
                     <RateWidget subjectType="track" subjectId={track.id} />
-                  </li>
+                  </MediaCard>
                 ))}
-              </ul>
+              </div>
             </section>
           )}
         </div>

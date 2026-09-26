@@ -1,31 +1,53 @@
 :root {
-  --text: #4b4855;
-  --text-h: #08060d;
-  --bg: #fff;
-  --bg-elevated: #f7f6f9;
-  --border: #e5e4e7;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --error: #d1293d;
+  --bg: #0d0c14;
+  --bg-elevated: #17151f;
+  --bg-elevated-2: #1f1c2b;
+  --border: #2c2836;
+  --text: #b9b4c7;
+  --text-h: #f5f3fb;
+  --text-dim: #756f8a;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  font: 16px/145% var(--sans);
-  color-scheme: light dark;
+  --accent-1: #a855f7;
+  --accent-2: #ec4899;
+  --accent-gradient: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+  --accent-bg: rgba(168, 85, 247, 0.14);
+  --accent-ring: rgba(168, 85, 247, 0.45);
+
+  --gold: #fbbf24;
+  --gold-dim: #4a4330;
+
+  --error: #fb7185;
+  --success: #34d399;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -8px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 0 1px rgba(168, 85, 247, 0.25), 0 8px 30px -8px rgba(168, 85, 247, 0.35);
+
+  --radius-sm: 8px;
+  --radius: 14px;
+  --radius-lg: 20px;
+
+  --sans: 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --display: 'Sora', 'Inter', system-ui, sans-serif;
+
+  font: 16px/1.55 var(--sans);
+  color-scheme: dark;
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #b7b4bf;
-    --text-h: #f3f4f6;
-    --bg: #14141a;
-    --bg-elevated: #1e1e26;
-    --border: #2e303a;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --error: #ff6b81;
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --bg: #faf9fc;
+    --bg-elevated: #ffffff;
+    --bg-elevated-2: #f1eef8;
+    --border: #e7e3f0;
+    --text: #55506a;
+    --text-h: #1a1626;
+    --text-dim: #948db0;
+    --accent-bg: rgba(168, 85, 247, 0.1);
+    --shadow-card: 0 1px 2px rgba(20, 10, 40, 0.04), 0 8px 24px -10px rgba(20, 10, 40, 0.12);
+    color-scheme: light;
   }
 }
 
@@ -33,57 +55,109 @@
   box-sizing: border-box;
 }
 
+html {
+  background: var(--bg);
+}
+
 body {
   margin: 0;
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(168, 85, 247, 0.16), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(236, 72, 153, 0.1), transparent 55%),
+    var(--bg);
+  min-height: 100vh;
 }
 
 h1, h2, h3, h4 {
+  font-family: var(--display);
   color: var(--text-h);
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 4px;
+}
+
+h1 {
+  font-size: 2.1rem;
+}
+h2 {
+  font-size: 1.4rem;
+}
+h3 {
+  font-size: 1.1rem;
+}
+h4 {
+  font-size: 0.95rem;
+}
+
+p {
+  margin: 0 0 8px;
 }
 
 a {
-  color: var(--accent);
+  color: var(--text-h);
   text-decoration: none;
+  transition: color 0.15s ease;
 }
 a:hover {
-  text-decoration: underline;
+  color: var(--accent-2);
 }
 
 button {
   font: inherit;
+  font-weight: 600;
   border: 1px solid var(--border);
-  background: var(--bg-elevated);
+  background: var(--bg-elevated-2);
   color: var(--text-h);
-  border-radius: 6px;
-  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  padding: 8px 16px;
   cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 button:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-1);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+button:active {
+  transform: translateY(1px);
 }
 button.active {
-  background: var(--accent-bg);
-  border-color: var(--accent);
+  background: var(--accent-gradient);
+  border-color: transparent;
+  color: white;
+}
+button.primary {
+  background: var(--accent-gradient);
+  border-color: transparent;
+  color: white;
+  box-shadow: var(--shadow-card);
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 input {
   font: inherit;
-  padding: 8px 10px;
+  padding: 10px 14px;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
   color: var(--text-h);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+input:focus {
+  outline: none;
+  border-color: var(--accent-1);
+  box-shadow: 0 0 0 3px var(--accent-bg);
 }
 
 .error {
   color: var(--error);
 }
 .muted {
-  color: var(--text);
-  opacity: 0.7;
+  color: var(--text-dim);
 }
 .hint {
   font-size: 0.85em;
-  opacity: 0.7;
+  color: var(--text-dim);
 }

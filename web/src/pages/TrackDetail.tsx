@@ -14,19 +14,33 @@ export function TrackDetail() {
 
   if (!track) return <p>Loading…</p>;
 
+  const cover = track.album?.cover_url;
+
   return (
     <div className="detail-page">
-      <h1>{track.title}</h1>
-      <p>
-        by <Link to={`/artists/${track.artist.id}`}>{track.artist.name}</Link>
-        {track.album && (
-          <>
-            {' '}
-            on <Link to={`/albums/${track.album.id}`}>{track.album.title}</Link>
-          </>
+      <div className="detail-hero">
+        {cover && <div className="detail-hero-backdrop" style={{ backgroundImage: `url(${cover})` }} />}
+        {cover ? (
+          <img src={cover} alt={track.title} className="cover" />
+        ) : (
+          <div className="cover-placeholder" style={{ background: 'var(--accent-gradient)' }}>
+            {track.title[0]}
+          </div>
         )}
-      </p>
-      <RateWidget subjectType="track" subjectId={track.id} />
+        <div className="detail-hero-info">
+          <h1>{track.title}</h1>
+          <p className="muted">
+            by <Link to={`/artists/${track.artist.id}`}>{track.artist.name}</Link>
+            {track.album && (
+              <>
+                {' '}
+                on <Link to={`/albums/${track.album.id}`}>{track.album.title}</Link>
+              </>
+            )}
+          </p>
+          <RateWidget subjectType="track" subjectId={track.id} />
+        </div>
+      </div>
     </div>
   );
 }

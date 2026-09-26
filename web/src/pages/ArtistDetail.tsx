@@ -16,10 +16,26 @@ export function ArtistDetail() {
 
   return (
     <div className="detail-page">
-      {artist.image_url && <img src={artist.image_url} alt={artist.name} className="cover" />}
-      <h1>{artist.name}</h1>
-      {artist.genres && <p className="muted">{artist.genres.join(', ')}</p>}
-      <RateWidget subjectType="artist" subjectId={artist.id} />
+      <div className="detail-hero">
+        {artist.image_url && (
+          <div className="detail-hero-backdrop" style={{ backgroundImage: `url(${artist.image_url})` }} />
+        )}
+        {artist.image_url ? (
+          <img src={artist.image_url} alt={artist.name} className="cover" style={{ borderRadius: '50%' }} />
+        ) : (
+          <div
+            className="cover-placeholder"
+            style={{ background: 'var(--accent-gradient)', borderRadius: '50%' }}
+          >
+            {artist.name[0]}
+          </div>
+        )}
+        <div className="detail-hero-info">
+          <h1>{artist.name}</h1>
+          {artist.genres && <p className="muted">{artist.genres.join(' · ')}</p>}
+          <RateWidget subjectType="artist" subjectId={artist.id} />
+        </div>
+      </div>
     </div>
   );
 }

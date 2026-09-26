@@ -4,7 +4,7 @@ interface Props {
   size?: number;
 }
 
-export function RatingStars({ value, onChange, size = 24 }: Props) {
+export function RatingStars({ value, onChange, size = 26 }: Props) {
   const stars = [1, 2, 3, 4, 5];
   return (
     <span className="rating-stars" style={{ fontSize: size }}>

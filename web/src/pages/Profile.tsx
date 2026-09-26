@@ -12,6 +12,7 @@ import type {
 } from '../lib/types';
 import { ConnectionsPanel } from '../components/ConnectionsPanel';
 import { SpotifyStatsPanel } from '../components/SpotifyStatsPanel';
+import { MediaCard } from '../components/MediaCard';
 
 export function Profile() {
   const { username: paramUsername } = useParams<{ username: string }>();
@@ -51,8 +52,13 @@ export function Profile() {
 
   return (
     <div className="profile-page">
-      <h1>{stats.user.display_name}</h1>
-      <p className="muted">@{stats.user.username}</p>
+      <div className="profile-header">
+        <div className="profile-avatar">{stats.user.display_name[0]?.toUpperCase()}</div>
+        <div>
+          <h1>{stats.user.display_name}</h1>
+          <p className="muted">@{stats.user.username}</p>
+        </div>
+      </div>
       {stats.user.bio && <p>{stats.user.bio}</p>}
 
       <section className="stats-grid">
@@ -66,54 +72,63 @@ export function Profile() {
         </div>
         <div className="stat-card">
           <span className="stat-value">{stats.total_diary_entries}</span>
-          <span className="stat-label">Diary entries</span>
+          <span className="stat-label">Diary</span>
         </div>
         <div className="stat-card">
           <span className="stat-value">{stats.most_active_month ?? '—'}</span>
-          <span className="stat-label">Most active month</span>
+          <span className="stat-label">Most active</span>
         </div>
       </section>
 
-      <section className="top-rated-grid">
-        <div>
+      {stats.top_rated_albums.length > 0 && (
+        <section className="section-block">
           <h3>Highest rated albums</h3>
-          <ul>
+          <div className="card-row">
             {stats.top_rated_albums.map((a) => (
-              <li key={a.album.id}>
-                {a.album.title} — {a.score}★
-              </li>
+              <MediaCard
+                key={a.album.id}
+                to={`/albums/${a.album.id}`}
+                image={a.album.cover_url}
+                title={a.album.title}
+                badge={`${a.score}★`}
+              />
             ))}
-            {stats.top_rated_albums.length === 0 && <li className="muted">No album ratings yet</li>}
-          </ul>
-        </div>
-        <div>
+          </div>
+        </section>
+      )}
+
+      {stats.top_rated_tracks.length > 0 && (
+        <section className="section-block">
           <h3>Highest rated tracks</h3>
-          <ul>
+          <div className="card-row">
             {stats.top_rated_tracks.map((t) => (
-              <li key={t.track.id}>
-                {t.track.title} — {t.score}★
-              </li>
+              <MediaCard key={t.track.id} to={`/tracks/${t.track.id}`} title={t.track.title} badge={`${t.score}★`} />
             ))}
-            {stats.top_rated_tracks.length === 0 && <li className="muted">No track ratings yet</li>}
-          </ul>
-        </div>
-        <div>
+          </div>
+        </section>
+      )}
+
+      {stats.top_rated_artists.length > 0 && (
+        <section className="section-block">
           <h3>Highest rated artists</h3>
-          <ul>
+          <div className="card-row">
             {stats.top_rated_artists.map((a) => (
-              <li key={a.artist.id}>
-                {a.artist.name} — {a.score}★
-              </li>
+              <MediaCard key={a.artist.id} to={`/artists/${a.artist.id}`} title={a.artist.name} badge={`${a.score}★`} />
             ))}
-            {stats.top_rated_artists.length === 0 && <li className="muted">No artist ratings yet</li>}
-          </ul>
-        </div>
-      </section>
+          </div>
+        </section>
+      )}
 
       {stats.favorite_genres && (
-        <section>
+        <section className="section-block">
           <h3>Favorite genres</h3>
-          <p>{stats.favorite_genres.map((g) => `${g.genre} (${g.count})`).join(' · ')}</p>
+          <div className="genre-pills">
+            {stats.favorite_genres.map((g) => (
+              <span key={g.genre} className="genre-pill">
+                {g.genre} · {g.count}
+              </span>
+            ))}
+          </div>
         </section>
       )}
 
@@ -124,7 +139,7 @@ export function Profile() {
         </>
       )}
 
-      <section>
+      <section className="section-block">
         <h3>Recent diary</h3>
         <ul className="diary-list">
           {diary.map((entry) => (
@@ -138,7 +153,7 @@ export function Profile() {
         </ul>
       </section>
 
-      <section>
+      <section className="section-block">
         <h3>Top rated (all ratings)</h3>
         <ul className="rating-list">
           {ratings.map((r) => (
