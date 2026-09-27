@@ -9,13 +9,16 @@ services:
     # Render, so migrations run as the last build step instead - functionally
     # equivalent for our purposes (migrations still apply before the new
     # version starts serving traffic).
-    buildCommand: npm install && npx prisma generate && npm run build && npx prisma migrate deploy
+    #
+    # Render sets NODE_ENV=production by default for Node web services,
+    # which makes plain `npm install` skip devDependencies - breaking this
+    # build, since typescript/@types/*/prisma (needed to compile and to run
+    # migrate deploy) are devDependencies. --include=dev overrides that.
+    buildCommand: npm install --include=dev && npx prisma generate && npm run build && npx prisma migrate deploy
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true
     envVars:
-      - key: NODE_ENV
-        value: production
       # Paste your Neon connection string here (see README "Deploying" section).
       - key: DATABASE_URL
         sync: false
