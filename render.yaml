@@ -5,8 +5,11 @@ services:
     plan: free
     region: oregon
     rootDir: server
-    buildCommand: npm install && npx prisma generate && npm run build
-    preDeployCommand: npm run prisma:migrate:deploy
+    # preDeployCommand would be cleaner but is a paid-tier-only feature on
+    # Render, so migrations run as the last build step instead - functionally
+    # equivalent for our purposes (migrations still apply before the new
+    # version starts serving traffic).
+    buildCommand: npm install && npx prisma generate && npm run build && npx prisma migrate deploy
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true
