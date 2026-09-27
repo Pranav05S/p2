@@ -37,6 +37,7 @@ export async function computeProfileStats(userId: string) {
 
   const favoriteGenres = await computeFavoriteGenres(ratings);
   const mostActiveMonth = await computeMostActiveMonth(userId);
+  const mostListenedTracks = await computeMostListenedTracks(userId);
 
   return {
     total_ratings: ratings.length,
@@ -46,9 +47,36 @@ export async function computeProfileStats(userId: string) {
     top_rated_albums: topAlbums,
     top_rated_tracks: topTracks,
     top_rated_artists: topArtists,
+    most_listened_tracks: mostListenedTracks,
     favorite_genres: favoriteGenres,
     most_active_month: mostActiveMonth,
   };
+}
+
+// "Listen count" is how many diary entries the user has logged for a track,
+// not a figure pulled from a streaming provider - no provider API exposes
+// per-track lifetime play counts, so this only reflects listens the user
+// has explicitly logged in their diary, re-listens included.
+async function computeMostListenedTracks(userId: string) {
+  const entries = await prisma.diaryEntry.findMany({
+    where: { userId, subjectType: 'track' },
+    select: { subjectId: true },
+  });
+  if (entries.length === 0) return [];
+
+  const counts = new Map<string, number>();
+  for (const e of entries) counts.set(e.subjectId, (counts.get(e.subjectId) ?? 0) + 1);
+
+  const topIds = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, TOP_N);
+  const tracks = await prisma.track.findMany({ where: { id: { in: topIds.map(([id]) => id) } } });
+  const trackById = new Map(tracks.map((t) => [t.id, t]));
+
+  return topIds
+    .map(([id, count]) => {
+      const track = trackById.get(id);
+      return track ? { track: { id: track.id, title: track.title }, listen_count: count } : null;
+    })
+    .filter((x): x is { track: { id: string; title: string }; listen_count: number } => x !== null);
 }
 
 async function topN<T extends { score: number; updatedAt: Date }, R>(

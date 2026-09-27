@@ -23,9 +23,12 @@ const createSchema = z.object({
 });
 
 export async function serializeDiaryEntry(entry: DiaryEntry) {
-  const [subject, rating] = await Promise.all([
+  const [subject, rating, listenCount] = await Promise.all([
     getSubjectSummary(entry.subjectType, entry.subjectId),
     entry.ratingId ? prisma.rating.findUnique({ where: { id: entry.ratingId } }) : null,
+    prisma.diaryEntry.count({
+      where: { userId: entry.userId, subjectType: entry.subjectType, subjectId: entry.subjectId },
+    }),
   ]);
   return {
     id: entry.id,
@@ -34,6 +37,9 @@ export async function serializeDiaryEntry(entry: DiaryEntry) {
     rating: rating
       ? { id: rating.id, score: rating.score, review: rating.review }
       : null,
+    // How many diary entries this user has logged for this exact subject
+    // (this one included) - i.e. how many times they've logged listening to it.
+    listen_count: listenCount,
     listened_on: entry.listenedOn.toISOString().slice(0, 10),
     created_at: entry.createdAt.toISOString(),
   };

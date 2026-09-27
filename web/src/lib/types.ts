@@ -78,6 +78,7 @@ export interface DiaryEntry {
   subject_type: SubjectType;
   subject: RatingSubject | null;
   rating: { id: string; score: number; review: string | null } | null;
+  listen_count: number;
   listened_on: string;
   created_at: string;
 }
@@ -91,6 +92,7 @@ export interface ProfileStats {
   top_rated_albums: { album: AlbumSummary; score: number }[];
   top_rated_tracks: { track: { id: string; title: string }; score: number }[];
   top_rated_artists: { artist: ArtistSummary; score: number }[];
+  most_listened_tracks: { track: { id: string; title: string }; listen_count: number }[];
   favorite_genres: { genre: string; count: number }[] | null;
   most_active_month: string | null;
 }

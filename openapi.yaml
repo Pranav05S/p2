@@ -795,6 +795,14 @@ components:
             - $ref: '#/components/schemas/ArtistSummary'
             - $ref: '#/components/schemas/AlbumSummary'
         rating: { $ref: '#/components/schemas/Rating', nullable: true }
+        listen_count:
+          type: integer
+          description: >-
+            How many diary entries this user has logged for this exact
+            subject, this one included - i.e. how many times they've logged
+            listening to it. Derived entirely from the user's own diary, not
+            from a streaming provider (no provider API exposes per-track
+            lifetime play counts).
         listened_on: { type: string, format: date }
         created_at: { type: string, format: date-time }
 
@@ -832,6 +840,14 @@ components:
             properties:
               artist: { $ref: '#/components/schemas/ArtistSummary' }
               score: { $ref: '#/components/schemas/Score' }
+        most_listened_tracks:
+          type: array
+          description: Tracks ranked by how many diary entries the user has logged for them (see DiaryEntry.listen_count)
+          items:
+            type: object
+            properties:
+              track: { type: object, properties: { id: { type: string }, title: { type: string } } }
+              listen_count: { type: integer }
         favorite_genres:
           type: array
           nullable: true

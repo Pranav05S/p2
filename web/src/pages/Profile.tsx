@@ -119,6 +119,22 @@ export function Profile() {
         </section>
       )}
 
+      {stats.most_listened_tracks.length > 0 && (
+        <section className="section-block">
+          <h3>Most listened tracks</h3>
+          <div className="card-row">
+            {stats.most_listened_tracks.map((t) => (
+              <MediaCard
+                key={t.track.id}
+                to={`/tracks/${t.track.id}`}
+                title={t.track.title}
+                badge={`×${t.listen_count}`}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       {stats.favorite_genres && (
         <section className="section-block">
           <h3>Favorite genres</h3>
@@ -147,6 +163,7 @@ export function Profile() {
               <span className="muted">{entry.listened_on}</span> —{' '}
               {entry.subject?.title ?? entry.subject?.name}
               {entry.rating && ` (${entry.rating.score}★)`}
+              {entry.listen_count > 1 && <span className="muted"> · listened {entry.listen_count}x</span>}
             </li>
           ))}
           {diary.length === 0 && <li className="muted">No diary entries yet</li>}
