@@ -314,7 +314,23 @@
 .rate-widget {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.log-listen-btn {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.log-listen-btn:hover {
+  border-color: var(--accent-1);
+  color: var(--accent-1);
+  box-shadow: none;
 }
 
 /* ---------- Detail pages (album/artist/track) ---------- */
